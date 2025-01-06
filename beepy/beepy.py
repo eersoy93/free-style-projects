@@ -21,7 +21,7 @@ class App:
     def draw(self):
         pyxel.cls(0)
         if (pyxel.frame_count // 30) % 2 == 0:
-            pyxel.text(40, 55, "Press 1 to 7 to beeps!", 7)
+            pyxel.text(37, 50, "Press 1 to 7 to beeps!", 7)
 
         if pyxel.play_pos(0) is not None:
             pyxel.cls(0)
