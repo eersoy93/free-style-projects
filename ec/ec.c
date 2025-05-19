@@ -106,7 +106,10 @@ void exec_line(char * line)
         printf("print <var>          Print variable\n");
         printf("exit                 Exit the interpreter\n");
         printf("help                 Show this help message\n");
-		printf("vars                 List all variables\n");
+        printf("vars                 List all variables\n");
+        printf("clearvars            Clear all variables\n");
+        printf("clear                Clear the screen\n");
+        printf("NOTE: Variables are case-sensitive!\n");
     }
     else if (sscanf_s(line, "%15s", cmd, (unsigned)sizeof(cmd)) == 1 && strcmp(cmd, "vars") == 0)
     {
@@ -115,6 +118,15 @@ void exec_line(char * line)
         {
             printf("%s = %d\n", vars[i].name, vars[i].value);
         }
+    }
+    else if (sscanf_s(line, "%15s", cmd, (unsigned)sizeof(cmd)) == 1 && strcmp(cmd, "clearvars") == 0)
+    {
+        var_count = 0;
+        printf("All variables cleared!\n");
+    }
+    else if (sscanf_s(line, "%15s", cmd, (unsigned)sizeof(cmd)) == 1 && strcmp(cmd, "clear") == 0)
+    {
+        system("cls");
     }
     else if (strlen(line) == 0 || line[0] == '#')
     {
