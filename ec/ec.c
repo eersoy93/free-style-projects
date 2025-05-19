@@ -6,7 +6,7 @@
 
 // Simple variable table
 typedef struct
-{  
+{
     char name[32];
     int value;
 } Variable;
@@ -16,21 +16,21 @@ int var_count = 0;
 
 // Find variable index, or -1 if not found
 int find_var(const char * name)
-{  
+{
     for (int i = 0; i < var_count; ++i)
     {
         if (strcmp(vars[i].name, name) == 0)
         {
             return i;
         }
-    }  
+    }
 
     return -1;
 }
 
 // Set variable value
 void set_var(const char * name, int value)
-{  
+{
     int idx = find_var(name);
     if (idx == -1)
     {
