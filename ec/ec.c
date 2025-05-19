@@ -94,6 +94,28 @@ void exec_line(char * line)
         int val = eval_expr(arg1);
         printf("%d\n", val);
     }
+    else if (sscanf_s(line, "%15s", cmd, (unsigned)sizeof(cmd)) == 1 && strcmp(cmd, "exit") == 0)
+    {
+        printf("Exiting EC...\n");
+        exit(EXIT_SUCCESS);
+    }
+    else if (sscanf_s(line, "%15s", cmd, (unsigned)sizeof(cmd)) == 1 && strcmp(cmd, "help") == 0)
+    {
+        printf("Available commands:\n");
+        printf("let <var> = <expr>   Set variable\n");
+        printf("print <var>          Print variable\n");
+        printf("exit                 Exit the interpreter\n");
+        printf("help                 Show this help message\n");
+		printf("vars                 List all variables\n");
+    }
+    else if (sscanf_s(line, "%15s", cmd, (unsigned)sizeof(cmd)) == 1 && strcmp(cmd, "vars") == 0)
+    {
+        printf("Variables:\n");
+        for (int i = 0; i < var_count; ++i)
+        {
+            printf("%s = %d\n", vars[i].name, vars[i].value);
+        }
+    }
     else if (strlen(line) == 0 || line[0] == '#')
     {
         // Ignore empty lines and comments
@@ -121,14 +143,7 @@ int main()
         // Remove trailing newline
         line[strcspn(line, "\n")] = 0;
 
-        if (strcmp(line, "exit") == 0)
-        {
-            break;
-        }
-        else
-        {
-            exec_line(line);
-        }
+        exec_line(line);
     }
 
     return EXIT_SUCCESS;
