@@ -1,6 +1,6 @@
 # EC
 
-Erdem Ersoy's C programming language dialect with interpreter
+Erdem Ersoy's shell with interpreter
 
 ## License
 

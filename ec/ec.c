@@ -143,7 +143,7 @@ int main()
 {
     char line[MAX_LINE];
     printf("Welcome to EC!\n");
-    printf("Simple C dialect interpreter. Type 'exit' to quit.\n");
+    printf("Simple shell interpreter. Type 'exit' to quit.\n");
     while (1)
     {
         printf("EC> ");
