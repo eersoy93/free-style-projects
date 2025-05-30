@@ -774,8 +774,17 @@ class Enemy:
         
         # Special behavior for ghost enemies
         if self.enemy_type == 'ghost':
-            self.float_offset += 0.1
-            self.y += math.sin(self.float_offset) * 0.5
+            # Ghosts fly horizontally and ignore gravity
+            self.x += self.vel_x
+            
+            # Reverse direction at screen edges
+            if self.x <= 0 or self.x >= SCREEN_WIDTH - self.width:
+                self.vel_x *= -1
+            
+            # Optional: Add slight vertical floating motion (much smaller)
+            self.float_offset += 0.05
+            # Keep the slight floating but make it much more subtle
+            # This adds a small up-down motion while maintaining horizontal flight
         else:
             # Store old position for better collision detection
             old_x = self.x
@@ -831,14 +840,15 @@ class Enemy:
                 self.vel_y = 0
                 self.on_ground = True
         
-        # Reverse direction at screen edges
-        if self.x <= 0 or self.x >= SCREEN_WIDTH - self.width:
-            self.vel_x *= -1
-            
-        # Platform edge detection for non-ghost enemies (improved)
-        if self.enemy_type != 'ghost' and self.on_ground:
-            self.check_platform_edges(platforms)
-            
+        # Reverse direction at screen edges (for non-ghosts, this is handled above for ghosts)
+        if self.enemy_type != 'ghost':
+            if self.x <= 0 or self.x >= SCREEN_WIDTH - self.width:
+                self.vel_x *= -1
+                
+            # Platform edge detection for non-ghost enemies (improved)
+            if self.on_ground:
+                self.check_platform_edges(platforms)
+    
     def check_platform_edges(self, platforms):
         """Make enemies turn around at platform edges - improved version"""
         # Check if enemy is about to walk off a platform
@@ -992,8 +1002,8 @@ class Enemy:
             (200, 208, 215)   # Even darker
         ]
         
-        # Floating animation
-        float_y = self.y + math.sin(self.animation_frame) * 2
+        # Much more subtle floating animation - just for visual effect
+        float_y = self.y + math.sin(self.float_offset) * 1  # Reduced from 2 to 1
         
         # Ghost body (wavy bottom)
         body_points = []
@@ -1200,7 +1210,7 @@ class Game:
         self.level = 1
         self.combo_multiplier = 1
         self.combo_timer = 0
-        self.invulnerable = False
+        self.invulnerable = False  # Make sure this is explicitly set to False
         self.invulnerable_time = 0
         self.invulnerable_duration = 2000
         self.font = pygame.font.Font(None, 36)
@@ -1209,6 +1219,11 @@ class Game:
         self.game_over = False
         self.win_time = 0
         self.start_time = pygame.time.get_ticks()
+        
+        # Add countdown timer
+        self.countdown_duration = 120  # 2 minutes in seconds
+        self.countdown_start_time = pygame.time.get_ticks()
+        self.time_warning_played = False  # To play warning sound at 30 seconds
         
         # Camera shake effect
         self.camera_shake = 0
@@ -1838,7 +1853,7 @@ class Game:
         self.platforms = self.generate_random_platforms()
         self.enemies = self.generate_enemies()
         self.coins = self.generate_coins()
-        self.power_ups = self.generate_power_ups()  # This was missing the method
+        self.power_ups = self.generate_power_ups()
         
         # Reset player position
         self.player.x = 100
@@ -1849,10 +1864,16 @@ class Game:
         # Clear particles
         self.particles = []
         
-        # Reset score and start time if starting new game
+        # Reset score and timers if starting new game
         if self.game_won or self.game_over:
             self.score = 0
-            self.start_time = pygame.time.get_ticks()  # Reset start time for new game
+            self.start_time = pygame.time.get_ticks()
+            self.countdown_start_time = pygame.time.get_ticks()  # Reset countdown timer
+            self.time_warning_played = False
+            
+        # Reset invulnerability when regenerating level
+        self.invulnerable = False
+        self.invulnerable_time = 0
     
     def draw_win_screen(self):
         """Draw the victory screen"""
@@ -1915,19 +1936,28 @@ class Game:
         
         # Main game over text
         game_over_text = game_over_font.render("GAME OVER", True, RED)
-        game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 80))
+        game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 100))
         self.screen.blit(game_over_text, game_over_rect)
+        
+        # Show reason for game over
+        remaining_time = self.get_remaining_time()
+        if remaining_time <= 0:
+            reason_text = score_font.render("Time's Up!", True, WHITE)
+        else:
+            reason_text = score_font.render("No Lives Remaining!", True, WHITE)
+        reason_rect = reason_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+        self.screen.blit(reason_text, reason_rect)
         
         # Final score
         final_score_text = score_font.render(f"Final Score: {self.score}", True, WHITE)
-        score_rect = final_score_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 20))
+        score_rect = final_score_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
         self.screen.blit(final_score_text, score_rect)
         
         # Coins collected
         coins_collected = sum(1 for coin in self.coins if coin.collected)
         total_coins = len(self.coins)
         coins_text = instruction_font.render(f"Coins Collected: {coins_collected}/{total_coins}", True, WHITE)
-        coins_rect = coins_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 20))
+        coins_rect = coins_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 40))
         self.screen.blit(coins_text, coins_rect)
         
         # Instructions
@@ -1939,7 +1969,7 @@ class Game:
         
         for i, instruction in enumerate(instructions):
             text = instruction_font.render(instruction, True, WHITE)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 80 + i * 40))
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 100 + i * 40))
             self.screen.blit(text, text_rect)
 
     def draw_lives(self):
@@ -1973,6 +2003,22 @@ class Game:
 
     def update(self):
         if not self.game_won and not self.game_over:
+            # Check countdown timer
+            remaining_time = self.get_remaining_time()
+            
+            # Play warning sound at 30 seconds (if sound is available)
+            if remaining_time <= 30 and remaining_time > 29 and not self.time_warning_played:
+                self.time_warning_played = True
+                # You could add a warning sound here if you have one
+                print("Warning: 30 seconds remaining!")
+            
+            # Game over when time runs out
+            if remaining_time <= 0:
+                self.game_over = True
+                self.play_lose_sound()
+                print("Time's up! Game Over!")
+                return
+            
             self.player.update(self.platforms)
             
             # Update camera shake
@@ -2023,29 +2069,37 @@ class Game:
             if enemy.alive:
                 enemy_rect = pygame.Rect(enemy.x, enemy.y, enemy.width, enemy.height)
                 if player_rect.colliderect(enemy_rect):
-                    # Check if player is jumping on enemy
-                    if self.player.vel_y > 0 and self.player.y < enemy.y:
-                        enemy.alive = False
-                        self.player.vel_y = JUMP_STRENGTH // 2  # Small bounce
-                        
-                        # Enhanced scoring with combo system
-                        points = 100 * self.combo_multiplier
-                        self.score += points
-                        self.combo_multiplier = min(5, self.combo_multiplier + 1)
-                        self.combo_timer = 3000  # 3 seconds to maintain combo
-                        
-                        # Add particles
-                        self.add_particles(enemy.x + enemy.width//2, enemy.y + enemy.height//2, 
-                                         YELLOW, 15)
-                        
-                        # Camera shake
-                        self.add_camera_shake(3, 200)
-                        
-                    else:
-                        # Player hit by enemy - lose a life if not invulnerable
+                    # Special case for spiky enemies - player always dies when touching them
+                    if enemy.enemy_type == 'spiky':
+                        # Player hit by spiky enemy - always lose a life if not invulnerable
                         if not self.invulnerable and not self.player.invincible_power:
+                            # Extra camera shake for spiky enemy (more dangerous)
+                            self.add_camera_shake(8, 500)
                             self.lose_life()
-                        
+                    else:
+                        # For other enemies, check if player is jumping on them
+                        if self.player.vel_y > 0 and self.player.y < enemy.y:
+                            enemy.alive = False
+                            self.player.vel_y = JUMP_STRENGTH // 2  # Small bounce
+                            
+                            # Enhanced scoring with combo system
+                            points = 100 * self.combo_multiplier
+                            self.score += points
+                            self.combo_multiplier = min(5, self.combo_multiplier + 1)
+                            self.combo_timer = 3000  # 3 seconds to maintain combo
+                            
+                            # Add particles
+                            self.add_particles(enemy.x + enemy.width//2, enemy.y + enemy.height//2, 
+                                             YELLOW, 15)
+                            
+                            # Camera shake
+                            self.add_camera_shake(3, 200)
+                            
+                        else:
+                            # Player hit by enemy - lose a life if not invulnerable
+                            if not self.invulnerable and not self.player.invincible_power:
+                                self.lose_life()
+        
         # Player vs coins (with magnet effect)
         for coin in self.coins:
             if not coin.collected:
@@ -2091,16 +2145,27 @@ class Game:
         self.lives -= 1
         print(f"Life lost! Lives remaining: {self.lives}")
         
+        # Reset player position
+        spawn_x = 100
+        spawn_y = 400
+        self.player.x = spawn_x
+        self.player.y = spawn_y
+        self.player.vel_x = 0
+        self.player.vel_y = 0
+        
+        # Add red particle effect at spawn point every time player dies
+        self.add_particles(spawn_x + self.player.width//2, 
+                         spawn_y + self.player.height//2, RED, 25)
+        
+        # Camera shake for respawn
+        self.add_camera_shake(6, 400)
+        
         if self.lives <= 0:
             self.game_over = True
             self.play_lose_sound()  # Play lose sound
             print("Game Over!")
         else:
-            # Reset player position and make invulnerable temporarily
-            self.player.x = 100
-            self.player.y = 400
-            self.player.vel_x = 0
-            self.player.vel_y = 0
+            # Make invulnerable temporarily
             self.invulnerable = True
             self.invulnerable_time = pygame.time.get_ticks()
     
@@ -2302,6 +2367,34 @@ class Game:
         level_text = self.small_font.render(f"Level: {self.level}", True, BLACK)
         self.screen.blit(level_text, (SCREEN_WIDTH - 100, 10))
         
+        # Draw countdown timer
+        remaining_time = self.get_remaining_time()
+        minutes = int(remaining_time // 60)
+        seconds = int(remaining_time % 60)
+        
+        # Change color based on remaining time
+        if remaining_time <= 30:
+            timer_color = RED  # Red when time is running out
+        elif remaining_time <= 60:
+            timer_color = ORANGE  # Orange when getting low
+        else:
+            timer_color = BLACK  # Normal color
+        
+        timer_text = self.font.render(f"Time: {minutes:02d}:{seconds:02d}", True, timer_color)
+        timer_rect = timer_text.get_rect()
+        timer_rect.centerx = SCREEN_WIDTH // 2
+        timer_rect.y = 10
+        self.screen.blit(timer_text, timer_rect)
+        
+        # Add flashing effect when time is very low (last 10 seconds)
+        if remaining_time <= 10 and remaining_time > 0:
+            if int(remaining_time * 2) % 2 == 0:  # Flash every half second
+                warning_text = self.small_font.render("TIME RUNNING OUT!", True, RED)
+                warning_rect = warning_text.get_rect()
+                warning_rect.centerx = SCREEN_WIDTH // 2
+                warning_rect.y = 50
+                self.screen.blit(warning_text, warning_rect)
+        
         # Draw lives
         self.draw_lives()
         
@@ -2391,6 +2484,12 @@ class Game:
                 self.lose_sound.play()
             except pygame.error as e:
                 print(f"Error playing lose sound: {e}")
+
+    def get_remaining_time(self):
+        """Get remaining time in seconds"""
+        elapsed_time = (pygame.time.get_ticks() - self.countdown_start_time) / 1000
+        remaining_time = max(0, self.countdown_duration - elapsed_time)
+        return remaining_time
 
 if __name__ == "__main__":
     game = Game()
