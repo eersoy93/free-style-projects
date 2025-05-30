@@ -35,6 +35,16 @@ MAX_PLATFORM_HEIGHT = 25
 MIN_PLATFORM_GAP = 100
 MAX_PLATFORM_GAP = 200
 
+# Add new constants for improvements
+PARTICLE_COUNT = 20
+POWER_UP_SPAWN_CHANCE = 0.3
+
+# Add new colors for improvements
+ORANGE = (255, 165, 0)
+PURPLE = (128, 0, 128)
+CYAN = (0, 255, 255)
+PINK = (255, 192, 203)
+
 class Player:
     def __init__(self, x, y):
         self.x = x
@@ -50,6 +60,16 @@ class Player:
         self.is_jumping = False
         self.is_walking = False
         
+        # Power-up effects
+        self.speed_boost = False
+        self.speed_boost_end = 0
+        self.jump_boost = False
+        self.jump_boost_end = 0
+        self.invincible_power = False
+        self.invincible_power_end = 0
+        self.magnet_power = False
+        self.magnet_power_end = 0
+        
         # Mario colors
         self.hat_color = (255, 0, 0)      # Red hat
         self.shirt_color = (255, 0, 0)    # Red shirt
@@ -59,27 +79,43 @@ class Player:
         self.shoe_color = (139, 69, 19)   # Brown shoes
         
     def update(self, platforms):
+        current_time = pygame.time.get_ticks()
+        
+        # Update power-up effects
+        if self.speed_boost and current_time > self.speed_boost_end:
+            self.speed_boost = False
+        if self.jump_boost and current_time > self.jump_boost_end:
+            self.jump_boost = False
+        if self.invincible_power and current_time > self.invincible_power_end:
+            self.invincible_power = False
+        if self.magnet_power and current_time > self.magnet_power_end:
+            self.magnet_power = False
+        
         # Handle input
         keys = pygame.key.get_pressed()
         
         # Reset walking state
         self.is_walking = False
         
+        # Determine speed based on power-ups
+        current_speed = PLAYER_SPEED * 1.5 if self.speed_boost else PLAYER_SPEED
+        
         # Horizontal movement
         if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-            self.vel_x = -PLAYER_SPEED
+            self.vel_x = -current_speed
             self.facing_right = False
             self.is_walking = True
         elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-            self.vel_x = PLAYER_SPEED
+            self.vel_x = current_speed
             self.facing_right = True
             self.is_walking = True
         else:
             self.vel_x = 0
             
-        # Jumping
+        # Jumping with power-up enhancement
+        jump_strength = JUMP_STRENGTH * 1.3 if self.jump_boost else JUMP_STRENGTH
         if (keys[pygame.K_SPACE] or keys[pygame.K_UP] or keys[pygame.K_w]) and self.on_ground:
-            self.vel_y = JUMP_STRENGTH
+            self.vel_y = jump_strength
             self.on_ground = False
             self.is_jumping = True
             
@@ -154,7 +190,43 @@ class Player:
             self.on_ground = True
             self.is_jumping = False
     
+    def apply_power_up(self, power_type, duration):
+        current_time = pygame.time.get_ticks()
+        
+        if power_type == 'speed':
+            self.speed_boost = True
+            self.speed_boost_end = current_time + duration
+        elif power_type == 'jump':
+            self.jump_boost = True
+            self.jump_boost_end = current_time + duration
+        elif power_type == 'invincible':
+            self.invincible_power = True
+            self.invincible_power_end = current_time + duration
+        elif power_type == 'magnet':
+            self.magnet_power = True
+            self.magnet_power_end = current_time + duration
+    
     def draw(self, screen):
+        # Add glow effect for power-ups
+        if self.invincible_power:
+            # Draw invincible glow
+            for i in range(3):
+                glow_color = (255, 255, 0, 100 - i * 30)  # Yellow glow
+                pygame.draw.circle(screen, YELLOW, 
+                                 (int(self.x + self.width//2), int(self.y + self.height//2)), 
+                                 self.width//2 + i * 3)
+        
+        if self.speed_boost:
+            # Draw speed trails
+            for i in range(3):
+                trail_x = self.x - (i + 1) * 5 * (1 if self.facing_right else -1)
+                trail_alpha = 100 - i * 30
+                # Simple trail effect (you could make this more sophisticated)
+                pygame.draw.circle(screen, ORANGE, 
+                                 (int(trail_x + self.width//2), int(self.y + self.height//2)), 
+                                 3 - i)
+        
+        # Draw normal player
         if self.is_jumping:
             self.draw_jumping(screen)
         elif self.is_walking:
@@ -989,10 +1061,115 @@ class Coin:
                 pygame.draw.ellipse(screen, YELLOW, coin_rect)
                 pygame.draw.ellipse(screen, BLACK, coin_rect, 2)
 
+class Particle:
+    def __init__(self, x, y, color, vel_x=0, vel_y=0, life=60):
+        self.x = x
+        self.y = y
+        self.color = color
+        self.vel_x = vel_x + random.uniform(-2, 2)
+        self.vel_y = vel_y + random.uniform(-3, -1)
+        self.life = life
+        self.max_life = life
+        self.size = random.randint(2, 4)
+        
+    def update(self):
+        self.x += self.vel_x
+        self.y += self.vel_y
+        self.vel_y += 0.1  # Gravity
+        self.life -= 1
+        
+    def draw(self, screen):
+        if self.life > 0:
+            alpha = int(255 * (self.life / self.max_life))
+            size = int(self.size * (self.life / self.max_life))
+            if size > 0:
+                pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), size)
+
+class PowerUp:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.width = 20
+        self.height = 20
+        self.collected = False
+        self.animation_frame = 0
+        
+        # Better random distribution of power types
+        power_types = ['speed', 'jump', 'invincible', 'magnet']
+        weights = [25, 25, 20, 30]  # Magnet slightly more common, invincible slightly less
+        self.power_type = random.choices(power_types, weights=weights)[0]
+        
+        self.float_offset = random.uniform(0, 6.28)  # Random start phase
+        
+        # Set properties based on power type
+        if self.power_type == 'speed':
+            self.color = ORANGE
+            self.effect_duration = 5000  # 5 seconds
+        elif self.power_type == 'jump':
+            self.color = GREEN
+            self.effect_duration = 5000
+        elif self.power_type == 'invincible':
+            self.color = PURPLE
+            self.effect_duration = 3000  # 3 seconds
+        elif self.power_type == 'magnet':
+            self.color = CYAN
+            self.effect_duration = 4000  # 4 seconds
+            
+    def update(self):
+        self.animation_frame += 0.1
+        self.float_offset += 0.05
+        
+    def draw(self, screen):
+        if not self.collected:
+            # Floating animation
+            float_y = self.y + math.sin(self.float_offset) * 3
+            
+            # Draw power-up with glow effect (more visible)
+            for i in range(4):  # More glow layers
+                size = self.width // 2 + i * 3
+                alpha_color = tuple(min(255, c + 60 - i * 15) for c in self.color)
+                pygame.draw.circle(screen, alpha_color, 
+                                 (int(self.x + self.width//2), int(float_y + self.height//2)), size)
+            
+            # Draw icon based on type (larger and more visible)
+            center_x = int(self.x + self.width//2)
+            center_y = int(float_y + self.height//2)
+            
+            if self.power_type == 'speed':
+                # Draw speed lines (larger)
+                for i in range(4):
+                    pygame.draw.line(screen, WHITE, 
+                                   (center_x - 10 + i*3, center_y - 3), 
+                                   (center_x - 5 + i*3, center_y + 3), 3)
+            elif self.power_type == 'jump':
+                # Draw up arrow (larger)
+                pygame.draw.polygon(screen, WHITE, [
+                    (center_x, center_y - 8),
+                    (center_x - 6, center_y + 4),
+                    (center_x + 6, center_y + 4)
+                ])
+            elif self.power_type == 'invincible':
+                # Draw star (larger)
+                points = []
+                for i in range(5):
+                    angle = i * 2 * math.pi / 5 - math.pi/2
+                    x = center_x + math.cos(angle) * 8
+                    y = center_y + math.sin(angle) * 8
+                    points.append((x, y))
+                pygame.draw.polygon(screen, WHITE, points)
+            elif self.power_type == 'magnet':
+                # Draw magnet shape (larger)
+                pygame.draw.rect(screen, WHITE, (center_x - 4, center_y - 8, 3, 12))
+                pygame.draw.rect(screen, WHITE, (center_x + 1, center_y - 8, 3, 12))
+                pygame.draw.rect(screen, WHITE, (center_x - 6, center_y - 8, 5, 3))
+                pygame.draw.rect(screen, WHITE, (center_x + 1, center_y - 8, 5, 3))
+                pygame.draw.rect(screen, WHITE, (center_x - 6, center_y + 5, 5, 3))
+                pygame.draw.rect(screen, WHITE, (center_x + 1, center_y + 5, 5, 3))
+
 class Game:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("Mario Bros Clone")
+        pygame.display.set_caption("Mario Bros Clone - Enhanced Edition")
         self.clock = pygame.time.Clock()
         
         # Initialize music
@@ -1009,21 +1186,149 @@ class Game:
         # Generate random platforms
         self.platforms = self.generate_random_platforms()
         
-        # Generate enemies and coins based on platforms
+        # Generate enemies, coins, and power-ups based on platforms
         self.enemies = self.generate_enemies()
         self.coins = self.generate_coins()
+        self.power_ups = self.generate_power_ups()
         
+        # Particle system
+        self.particles = []
+        
+        # Enhanced game state
         self.score = 0
-        self.lives = 3  # Player starts with 3 lives
-        self.invulnerable = False  # Invulnerability after taking damage
+        self.lives = 3
+        self.level = 1
+        self.combo_multiplier = 1
+        self.combo_timer = 0
+        self.invulnerable = False
         self.invulnerable_time = 0
-        self.invulnerable_duration = 2000  # 2 seconds of invulnerability
+        self.invulnerable_duration = 2000
         self.font = pygame.font.Font(None, 36)
+        self.small_font = pygame.font.Font(None, 24)
         self.game_won = False
         self.game_over = False
         self.win_time = 0
-        self.start_time = pygame.time.get_ticks()  # Track when game started
+        self.start_time = pygame.time.get_ticks()
         
+        # Camera shake effect
+        self.camera_shake = 0
+        self.camera_shake_duration = 0
+    
+    def generate_power_ups(self):
+        power_ups = []
+        
+        # Place power-ups on platforms and in floating positions
+        available_platforms = [p for p in self.platforms 
+                             if p.y < SCREEN_HEIGHT - 50 and p.width >= 60]
+        
+        if not available_platforms:
+            return power_ups
+        
+        # Generate 2-4 power-ups guaranteed
+        num_power_ups = random.randint(2, 4)
+        
+        # Method 1: Place some power-ups on platforms
+        platform_power_ups = min(num_power_ups // 2 + 1, len(available_platforms))
+        selected_platforms = random.sample(available_platforms, platform_power_ups)
+        
+        for platform in selected_platforms:
+            power_up_x = random.randint(int(platform.x + 10), 
+                                      int(platform.x + platform.width - 30))
+            power_up_y = platform.y - 25
+            power_ups.append(PowerUp(power_up_x, power_up_y))
+        
+        # Method 2: Place remaining power-ups in floating positions
+        remaining_power_ups = num_power_ups - len(power_ups)
+        
+        for _ in range(remaining_power_ups):
+            attempts = 0
+            placed = False
+            
+            while attempts < 30 and not placed:
+                # Random position anywhere on screen
+                x = random.randint(50, SCREEN_WIDTH - 70)
+                y = random.randint(100, SCREEN_HEIGHT - 200)
+                
+                # Check if position is reachable from at least one platform
+                reachable = False
+                MAX_JUMP_HEIGHT = abs(JUMP_STRENGTH) * abs(JUMP_STRENGTH) / (2 * GRAVITY) - 10
+                MAX_JUMP_DISTANCE = PLAYER_SPEED * (2 * abs(JUMP_STRENGTH) / GRAVITY) * 0.9
+                
+                for platform in available_platforms:
+                    platform_center_x = platform.x + platform.width // 2
+                    platform_top_y = platform.y
+                    
+                    horizontal_distance = abs(platform_center_x - (x + 10))  # 10 is half power-up width
+                    vertical_distance = platform_top_y - y
+                    
+                    # Check if reachable
+                    if (horizontal_distance <= MAX_JUMP_DISTANCE and 
+                        -50 <= vertical_distance <= MAX_JUMP_HEIGHT):
+                        reachable = True
+                        break
+                
+                if not reachable:
+                    attempts += 1
+                    continue
+                
+                # Check if position doesn't overlap with platforms or other power-ups
+                power_up_rect = pygame.Rect(x - 10, y - 10, 40, 40)
+                valid_position = True
+                
+                # Check platform overlaps
+                for platform in self.platforms:
+                    platform_rect = pygame.Rect(platform.x, platform.y, 
+                                               platform.width, platform.height)
+                    if power_up_rect.colliderect(platform_rect):
+                        valid_position = False
+                        break
+                
+                # Check other power-up overlaps
+                if valid_position:
+                    for existing_power_up in power_ups:
+                        if (abs(existing_power_up.x - x) < 50 and 
+                            abs(existing_power_up.y - y) < 50):
+                            valid_position = False
+                            break
+                
+                if valid_position:
+                    power_ups.append(PowerUp(x, y))
+                    placed = True
+                
+                attempts += 1
+        
+        # Method 3: If we still don't have enough power-ups, place them more liberally
+        if len(power_ups) < 2:
+            for _ in range(2 - len(power_ups)):
+                # Just place them on random platforms without too many restrictions
+                if available_platforms:
+                    platform = random.choice(available_platforms)
+                    power_up_x = random.randint(int(platform.x + 10), 
+                                              int(platform.x + platform.width - 30))
+                    power_up_y = platform.y - 25
+                    
+                    # Quick check to avoid placing on same spot
+                    too_close = False
+                    for existing_power_up in power_ups:
+                        if (abs(existing_power_up.x - power_up_x) < 30 and 
+                            abs(existing_power_up.y - power_up_y) < 30):
+                            too_close = True
+                            break
+                    
+                    if not too_close:
+                        power_ups.append(PowerUp(power_up_x, power_up_y))
+        
+        return power_ups
+    
+    def add_particles(self, x, y, color, count=PARTICLE_COUNT):
+        for _ in range(count):
+            particle = Particle(x, y, color)
+            self.particles.append(particle)
+    
+    def add_camera_shake(self, intensity=5, duration=300):
+        self.camera_shake = intensity
+        self.camera_shake_duration = duration
+    
     def load_music(self):
         """Load and start background music"""
         try:
@@ -1508,6 +1813,8 @@ class Game:
                         self.win_time = 0
                         self.lives = 3  # Reset lives
                         self.invulnerable = False
+                        self.combo_multiplier = 1
+                        self.combo_timer = 0
                     self.regenerate_level()
                 elif event.key == pygame.K_m:  # Press M to toggle music
                     self.toggle_music()
@@ -1521,6 +1828,8 @@ class Game:
                     self.win_time = 0
                     self.lives = 3  # Reset lives
                     self.invulnerable = False
+                    self.combo_multiplier = 1
+                    self.combo_timer = 0
                     self.regenerate_level()
         return True
     
@@ -1529,12 +1838,16 @@ class Game:
         self.platforms = self.generate_random_platforms()
         self.enemies = self.generate_enemies()
         self.coins = self.generate_coins()
+        self.power_ups = self.generate_power_ups()  # This was missing the method
         
         # Reset player position
         self.player.x = 100
         self.player.y = 400
         self.player.vel_x = 0
         self.player.vel_y = 0
+        
+        # Clear particles
+        self.particles = []
         
         # Reset score and start time if starting new game
         if self.game_won or self.game_over:
@@ -1662,16 +1975,39 @@ class Game:
         if not self.game_won and not self.game_over:
             self.player.update(self.platforms)
             
+            # Update camera shake
+            if self.camera_shake_duration > 0:
+                self.camera_shake_duration -= 1000 / FPS
+                if self.camera_shake_duration <= 0:
+                    self.camera_shake = 0
+            
             # Update invulnerability
             if self.invulnerable:
                 if pygame.time.get_ticks() - self.invulnerable_time > self.invulnerable_duration:
                     self.invulnerable = False
             
+            # Update combo timer
+            if self.combo_timer > 0:
+                self.combo_timer -= 1000 / FPS
+                if self.combo_timer <= 0:
+                    self.combo_multiplier = 1
+            
+            # Update enemies
             for enemy in self.enemies:
                 enemy.update(self.platforms)
                 
+            # Update coins
             for coin in self.coins:
                 coin.update()
+                
+            # Update power-ups
+            for power_up in self.power_ups:
+                power_up.update()
+                
+            # Update particles
+            self.particles = [p for p in self.particles if p.life > 0]
+            for particle in self.particles:
+                particle.update()
                 
             # Check collisions
             self.check_collisions()
@@ -1691,19 +2027,64 @@ class Game:
                     if self.player.vel_y > 0 and self.player.y < enemy.y:
                         enemy.alive = False
                         self.player.vel_y = JUMP_STRENGTH // 2  # Small bounce
-                        self.score += 100
+                        
+                        # Enhanced scoring with combo system
+                        points = 100 * self.combo_multiplier
+                        self.score += points
+                        self.combo_multiplier = min(5, self.combo_multiplier + 1)
+                        self.combo_timer = 3000  # 3 seconds to maintain combo
+                        
+                        # Add particles
+                        self.add_particles(enemy.x + enemy.width//2, enemy.y + enemy.height//2, 
+                                         YELLOW, 15)
+                        
+                        # Camera shake
+                        self.add_camera_shake(3, 200)
+                        
                     else:
                         # Player hit by enemy - lose a life if not invulnerable
-                        if not self.invulnerable:
+                        if not self.invulnerable and not self.player.invincible_power:
                             self.lose_life()
                         
-        # Player vs coins
+        # Player vs coins (with magnet effect)
         for coin in self.coins:
             if not coin.collected:
                 coin_rect = pygame.Rect(coin.x, coin.y, coin.width, coin.height)
+                
+                # Magnet effect
+                if self.player.magnet_power:
+                    distance = math.sqrt((coin.x - self.player.x)**2 + (coin.y - self.player.y)**2)
+                    if distance < 100:  # Magnet range
+                        # Pull coin towards player
+                        dx = self.player.x - coin.x
+                        dy = self.player.y - coin.y
+                        coin.x += dx * 0.1
+                        coin.y += dy * 0.1
+                
                 if player_rect.colliderect(coin_rect):
                     coin.collected = True
-                    self.score += 50
+                    points = 50 * self.combo_multiplier
+                    self.score += points
+                    
+                    # Add coin particles
+                    self.add_particles(coin.x + coin.width//2, coin.y + coin.height//2, 
+                                     YELLOW, 10)
+        
+        # Player vs power-ups
+        for power_up in self.power_ups:
+            if not power_up.collected:
+                power_up_rect = pygame.Rect(power_up.x, power_up.y, power_up.width, power_up.height)
+                if player_rect.colliderect(power_up_rect):
+                    power_up.collected = True
+                    self.player.apply_power_up(power_up.power_type, power_up.effect_duration)
+                    self.score += 200
+                    
+                    # Add power-up particles
+                    self.add_particles(power_up.x + power_up.width//2, power_up.y + power_up.height//2, 
+                                     power_up.color, 20)
+                    
+                    # Camera shake for power-up
+                    self.add_camera_shake(4, 250)
     
     def lose_life(self):
         """Handle losing a life"""
@@ -1859,7 +2240,11 @@ class Game:
                          (sun_x - 8, sun_y - 8), 8)
 
     def draw(self):
-        # Draw background instead of filling with white
+        # Calculate camera offset for shake effect
+        shake_x = random.randint(-self.camera_shake, self.camera_shake) if self.camera_shake > 0 else 0
+        shake_y = random.randint(-self.camera_shake, self.camera_shake) if self.camera_shake > 0 else 0
+        
+        # Draw background
         self.draw_background()
         
         # Draw platforms
@@ -1874,6 +2259,14 @@ class Game:
         for coin in self.coins:
             coin.draw(self.screen)
             
+        # Draw power-ups
+        for power_up in self.power_ups:
+            power_up.draw(self.screen)
+            
+        # Draw particles
+        for particle in self.particles:
+            particle.draw(self.screen)
+            
         # Draw player (with flashing effect if invulnerable)
         if self.invulnerable:
             # Flash player by only drawing every few frames
@@ -1883,46 +2276,8 @@ class Game:
         else:
             self.player.draw(self.screen)
         
-        # Draw UI
-        score_text = self.font.render(f"Score: {self.score}", True, BLACK)
-        self.screen.blit(score_text, (10, 10))
-        
-        # Draw lives
-        self.draw_lives()
-        
-        # Draw coins remaining
-        coins_remaining = sum(1 for coin in self.coins if not coin.collected)
-        coins_text = pygame.font.Font(None, 24).render(f"Coins Remaining: {coins_remaining}", True, BLACK)
-        self.screen.blit(coins_text, (10, 40))
-        
-        # Draw music status (fixed unicode issue)
-        music_status = "ON" if (self.music_playing and pygame.mixer.music.get_busy()) else "OFF"
-        music_text = pygame.font.Font(None, 24).render(f"Music: {music_status}", True, BLACK)
-        self.screen.blit(music_text, (10, 70))
-        
-        # Draw volume
-        volume_text = pygame.font.Font(None, 24).render(f"Volume: {int(self.music_volume * 100)}%", True, BLACK)
-        self.screen.blit(volume_text, (10, 95))
-        
-        # Draw invulnerability status
-        if self.invulnerable:
-            invul_text = pygame.font.Font(None, 24).render("INVULNERABLE", True, BLUE)
-            self.screen.blit(invul_text, (10, 120))
-        
-        # Draw instructions
-        if not self.game_won and not self.game_over:
-            instructions = [
-                "Arrow Keys / WASD: Move",
-                "Space / Up: Jump",
-                "R: Regenerate Level",
-                "M: Toggle Music",
-                "+/-: Volume Up/Down",
-                "ESC: Quit"
-            ]
-            
-            for i, instruction in enumerate(instructions):
-                text = pygame.font.Font(None, 24).render(instruction, True, BLACK)
-                self.screen.blit(text, (10, SCREEN_HEIGHT - 150 + i * 25))
+        # Enhanced UI
+        self.draw_enhanced_ui()
         
         # Draw win screen if game is won
         if self.game_won:
@@ -1933,7 +2288,65 @@ class Game:
             self.draw_game_over_screen()
         
         pygame.display.flip()
+    
+    def draw_enhanced_ui(self):
+        # Score with combo multiplier
+        score_text = self.font.render(f"Score: {self.score}", True, BLACK)
+        self.screen.blit(score_text, (10, 10))
         
+        if self.combo_multiplier > 1:
+            combo_text = self.small_font.render(f"Combo x{self.combo_multiplier}!", True, ORANGE)
+            self.screen.blit(combo_text, (10, 45))
+        
+        # Level indicator
+        level_text = self.small_font.render(f"Level: {self.level}", True, BLACK)
+        self.screen.blit(level_text, (SCREEN_WIDTH - 100, 10))
+        
+        # Draw lives
+        self.draw_lives()
+        
+        # Draw coins remaining
+        coins_remaining = sum(1 for coin in self.coins if not coin.collected)
+        coins_text = self.small_font.render(f"Coins: {coins_remaining}", True, BLACK)
+        self.screen.blit(coins_text, (10, 70))
+        
+        # Power-up status indicators
+        y_offset = 95
+        if self.player.speed_boost:
+            speed_text = self.small_font.render("SPEED BOOST!", True, ORANGE)
+            self.screen.blit(speed_text, (10, y_offset))
+            y_offset += 20
+        
+        if self.player.jump_boost:
+            jump_text = self.small_font.render("SUPER JUMP!", True, GREEN)
+            self.screen.blit(jump_text, (10, y_offset))
+            y_offset += 20
+        
+        if self.player.invincible_power:
+            invincible_text = self.small_font.render("INVINCIBLE!", True, PURPLE)
+            self.screen.blit(invincible_text, (10, y_offset))
+            y_offset += 20
+        
+        if self.player.magnet_power:
+            magnet_text = self.small_font.render("COIN MAGNET!", True, CYAN)
+            self.screen.blit(magnet_text, (10, y_offset))
+            y_offset += 20
+        
+        # Music status
+        music_status = "ON" if (self.music_playing and pygame.mixer.music.get_busy()) else "OFF"
+        music_text = self.small_font.render(f"Music: {music_status}", True, BLACK)
+        self.screen.blit(music_text, (10, y_offset))
+        
+        # Instructions (condensed)
+        if not self.game_won and not self.game_over:
+            instructions = [
+                "WASD/Arrows: Move | Space: Jump | R: New Level | M: Music | ESC: Quit"
+            ]
+            
+            for i, instruction in enumerate(instructions):
+                text = pygame.font.Font(None, 20).render(instruction, True, BLACK)
+                self.screen.blit(text, (10, SCREEN_HEIGHT - 30 + i * 20))
+
     def run(self):
         running = True
         while running:
