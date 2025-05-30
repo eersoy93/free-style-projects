@@ -95,11 +95,31 @@ class Player:
         # Apply gravity
         self.vel_y += GRAVITY
         
-        # Update position
+        # Store old position for collision resolution
+        old_x = self.x
+        old_y = self.y
+        
+        # Update horizontal position first
         self.x += self.vel_x
+        
+        # Check horizontal collisions
+        player_rect = pygame.Rect(self.x, self.y, self.width, self.height)
+        for platform in platforms:
+            platform_rect = pygame.Rect(platform.x, platform.y, platform.width, platform.height)
+            
+            if player_rect.colliderect(platform_rect):
+                # Horizontal collision - push player out
+                if self.vel_x > 0:  # Moving right
+                    self.x = platform.x - self.width
+                elif self.vel_x < 0:  # Moving left
+                    self.x = platform.x + platform.width
+                self.vel_x = 0
+                break
+        
+        # Update vertical position
         self.y += self.vel_y
         
-        # Check platform collisions
+        # Check vertical collisions
         self.on_ground = False
         player_rect = pygame.Rect(self.x, self.y, self.width, self.height)
         
@@ -107,23 +127,21 @@ class Player:
             platform_rect = pygame.Rect(platform.x, platform.y, platform.width, platform.height)
             
             if player_rect.colliderect(platform_rect):
-                # Landing on top of platform
-                if self.vel_y > 0 and self.y < platform.y:
-                    self.y = platform.y - self.height
-                    self.vel_y = 0
-                    self.on_ground = True
-                    self.is_jumping = False
-                # Hitting platform from below
-                elif self.vel_y < 0 and self.y > platform.y:
-                    self.y = platform.y + platform.height
-                    self.vel_y = 0
-                # Hitting platform from the side
-                elif self.vel_x > 0:  # Moving right
-                    self.x = platform.x - self.width
-                elif self.vel_x < 0:  # Moving left
-                    self.x = platform.x + platform.width
+                if self.vel_y > 0:  # Falling down - landing on platform
+                    # Only land on platform if player was above it
+                    if old_y + self.height <= platform.y + 5:  # Small tolerance
+                        self.y = platform.y - self.height
+                        self.vel_y = 0
+                        self.on_ground = True
+                        self.is_jumping = False
+                elif self.vel_y < 0:  # Moving up - hitting platform from below
+                    # Only hit from below if player was below it
+                    if old_y >= platform.y + platform.height - 5:  # Small tolerance
+                        self.y = platform.y + platform.height
+                        self.vel_y = 0
+                break
                     
-        # Keep player on screen
+        # Keep player on screen horizontally
         if self.x < 0:
             self.x = 0
         elif self.x > SCREEN_WIDTH - self.width:
@@ -135,7 +153,7 @@ class Player:
             self.vel_y = 0
             self.on_ground = True
             self.is_jumping = False
-            
+    
     def draw(self, screen):
         if self.is_jumping:
             self.draw_jumping(screen)
@@ -650,6 +668,7 @@ class Enemy:
         self.animation_frame = 0
         self.animation_speed = 0.2
         self.enemy_type = random.choice(['goomba', 'koopa', 'spiky', 'ghost'])
+        self.on_ground = False  # Add ground tracking for enemies
         
         # Set properties based on enemy type
         if self.enemy_type == 'goomba':
@@ -686,53 +705,88 @@ class Enemy:
             self.float_offset += 0.1
             self.y += math.sin(self.float_offset) * 0.5
         else:
+            # Store old position for better collision detection
+            old_x = self.x
+            old_y = self.y
+            
             # Apply gravity for non-ghost enemies
             self.vel_y += GRAVITY
+            
+            # Update horizontal position first
+            self.x += self.vel_x
+            
+            # Check horizontal collisions with platforms
+            enemy_rect = pygame.Rect(self.x, self.y, self.width, self.height)
+            for platform in platforms:
+                platform_rect = pygame.Rect(platform.x, platform.y, platform.width, platform.height)
+                
+                if enemy_rect.colliderect(platform_rect):
+                    # Horizontal collision - reverse direction
+                    if self.vel_x > 0:  # Moving right
+                        self.x = platform.x - self.width
+                    elif self.vel_x < 0:  # Moving left
+                        self.x = platform.x + platform.width
+                    self.vel_x *= -1
+                    break
+            
+            # Update vertical position
             self.y += self.vel_y
             
-            # Platform collision for non-ghost enemies
+            # Check vertical collisions with platforms
+            self.on_ground = False
             enemy_rect = pygame.Rect(self.x, self.y, self.width, self.height)
             
             for platform in platforms:
                 platform_rect = pygame.Rect(platform.x, platform.y, platform.width, platform.height)
                 
                 if enemy_rect.colliderect(platform_rect):
-                    if self.vel_y > 0 and self.y < platform.y:
-                        self.y = platform.y - self.height
-                        self.vel_y = 0
+                    if self.vel_y > 0:  # Falling down
+                        # Only land if enemy was above platform
+                        if old_y + self.height <= platform.y + 5:
+                            self.y = platform.y - self.height
+                            self.vel_y = 0
+                            self.on_ground = True
+                    elif self.vel_y < 0:  # Moving up
+                        # Hit platform from below
+                        if old_y >= platform.y + platform.height - 5:
+                            self.y = platform.y + platform.height
+                            self.vel_y = 0
+                    break
                         
             # Ground collision
             if self.y > SCREEN_HEIGHT - self.height:
                 self.y = SCREEN_HEIGHT - self.height
                 self.vel_y = 0
+                self.on_ground = True
         
-        # Move horizontally
-        self.x += self.vel_x
-        
-        # Reverse direction at edges or when hitting walls
+        # Reverse direction at screen edges
         if self.x <= 0 or self.x >= SCREEN_WIDTH - self.width:
             self.vel_x *= -1
             
-        # Platform edge detection for non-ghost enemies
-        if self.enemy_type != 'ghost':
+        # Platform edge detection for non-ghost enemies (improved)
+        if self.enemy_type != 'ghost' and self.on_ground:
             self.check_platform_edges(platforms)
             
     def check_platform_edges(self, platforms):
-        """Make enemies turn around at platform edges"""
-        enemy_rect = pygame.Rect(self.x, self.y + self.height, self.width, 5)
-        on_platform = False
+        """Make enemies turn around at platform edges - improved version"""
+        # Check if enemy is about to walk off a platform
+        look_ahead_distance = 10
+        look_ahead_x = self.x + (look_ahead_distance if self.vel_x > 0 else -look_ahead_distance)
         
+        # Create a small rectangle at the enemy's feet, looking ahead
+        foot_rect = pygame.Rect(look_ahead_x, self.y + self.height, 5, 10)
+        
+        on_platform = False
         for platform in platforms:
             platform_rect = pygame.Rect(platform.x, platform.y, platform.width, platform.height)
-            if enemy_rect.colliderect(platform_rect):
+            if foot_rect.colliderect(platform_rect):
                 on_platform = True
-                # Check if enemy is near platform edge
-                if self.vel_x > 0 and self.x + self.width >= platform.x + platform.width - 5:
-                    self.vel_x *= -1
-                elif self.vel_x < 0 and self.x <= platform.x + 5:
-                    self.vel_x *= -1
                 break
-                
+        
+        # If no platform ahead and enemy is on ground, turn around
+        if not on_platform and self.on_ground:
+            self.vel_x *= -1
+    
     def draw(self, screen):
         if not self.alive:
             return
@@ -1018,61 +1072,80 @@ class Game:
     def generate_accessible_platforms(self, platforms):
         """Generate platforms that are guaranteed to be reachable"""
         # Define jumping constraints
-        MAX_JUMP_HEIGHT = abs(JUMP_STRENGTH) * abs(JUMP_STRENGTH) / (2 * GRAVITY) - 10  # Safe jump height
-        MAX_JUMP_DISTANCE = PLAYER_SPEED * (2 * abs(JUMP_STRENGTH) / GRAVITY)  # Horizontal distance during jump
+        MAX_JUMP_HEIGHT = abs(JUMP_STRENGTH) * abs(JUMP_STRENGTH) / (2 * GRAVITY) - 20  # More conservative
+        MAX_JUMP_DISTANCE = PLAYER_SPEED * (2 * abs(JUMP_STRENGTH) / GRAVITY) * 0.8  # More conservative
         
         # Create platforms in accessible layers
         current_layer_platforms = [platforms[0]]  # Start with ground platform
         
         for layer in range(3):  # Create 3 layers of platforms
             next_layer_platforms = []
-            layer_height = SCREEN_HEIGHT - 120 - (layer * 120)  # Each layer 120 pixels higher
+            layer_height = SCREEN_HEIGHT - 150 - (layer * 100)  # Better spacing between layers
             
             # Ensure layer height is reasonable
-            if layer_height < 100:
+            if layer_height < 80:
                 break
                 
-            num_platforms_in_layer = random.randint(2, 4)
+            num_platforms_in_layer = random.randint(2, 4)  # Fewer platforms per layer to avoid crowding
             
             for i in range(num_platforms_in_layer):
                 attempts = 0
                 platform_created = False
                 
-                while attempts < 30 and not platform_created:
+                while attempts < 50 and not platform_created:  # More attempts
                     # Random platform properties
                     width = random.randint(MIN_PLATFORM_WIDTH, MAX_PLATFORM_WIDTH)
                     height = random.randint(MIN_PLATFORM_HEIGHT, MAX_PLATFORM_HEIGHT)
                     
-                    # Try to place platform accessible from current layer
-                    source_platform = random.choice(current_layer_platforms)
+                    # Simple random positioning with bounds checking
+                    margin = 50  # Minimum distance from screen edges
+                    max_x = SCREEN_WIDTH - width - margin
+                    min_x = margin
                     
-                    # Calculate accessible position range from source platform
-                    min_x = max(0, source_platform.x - MAX_JUMP_DISTANCE)
-                    max_x = min(SCREEN_WIDTH - width, source_platform.x + source_platform.width + MAX_JUMP_DISTANCE)
-                    
+                    # Ensure we have a valid range
                     if min_x >= max_x:
                         attempts += 1
                         continue
                     
-                    x = random.randint(int(min_x), int(max_x))
-                    y = random.randint(int(layer_height - 20), int(layer_height + 20))
+                    x = random.randint(min_x, max_x)
                     
-                    # Check if platform is reachable (height difference)
-                    height_diff = source_platform.y - (y + height)
-                    if height_diff > MAX_JUMP_HEIGHT:
+                    # Add some height variation within the layer
+                    y_variation = random.randint(-20, 20)
+                    y = max(50, min(SCREEN_HEIGHT - 100, layer_height + y_variation))
+                    
+                    # Check if platform is reachable from at least one platform in current layer
+                    reachable = False
+                    for source_platform in current_layer_platforms:
+                        horizontal_distance = abs((source_platform.x + source_platform.width/2) - (x + width/2))
+                        height_diff = source_platform.y - (y + height)
+                        
+                        if (horizontal_distance <= MAX_JUMP_DISTANCE and 
+                            -30 <= height_diff <= MAX_JUMP_HEIGHT):
+                            reachable = True
+                            break
+                    
+                    if not reachable:
                         attempts += 1
                         continue
                     
-                    # Check for overlaps with existing platforms
-                    new_rect = pygame.Rect(x, y, width, height)
+                    # Check for overlaps with existing platforms (more strict)
+                    new_rect = pygame.Rect(x - 20, y - 20, width + 40, height + 40)  # Larger buffer
                     valid_position = True
                     
                     for existing_platform in platforms:
                         existing_rect = pygame.Rect(existing_platform.x, existing_platform.y, 
                                                   existing_platform.width, existing_platform.height)
                         
-                        if (new_rect.colliderect(existing_rect) or 
-                            abs(new_rect.centerx - existing_rect.centerx) < 60):
+                        if new_rect.colliderect(existing_rect):
+                            valid_position = False
+                            break
+                    
+                    # Also check against platforms being created in this layer
+                    for existing_platform in next_layer_platforms:
+                        existing_rect = pygame.Rect(existing_platform.x, existing_platform.y, 
+                                                  existing_platform.width, existing_platform.height)
+                        
+                        if new_rect.colliderect(existing_rect):
                             valid_position = False
                             break
                     
@@ -1084,32 +1157,116 @@ class Game:
                     
                     attempts += 1
             
-            # If no platforms were created in this layer, stop
+            # If no platforms were created in this layer, try to create at least one
+            if not next_layer_platforms and layer < 2:  # Don't force on last layer
+                # Create a guaranteed platform
+                width = MIN_PLATFORM_WIDTH + 20
+                height = MIN_PLATFORM_HEIGHT
+                x = max(50, min(SCREEN_WIDTH - width - 50, SCREEN_WIDTH // 2 - width // 2))  # Center platform with bounds check
+                y = layer_height
+                
+                # Make sure it doesn't overlap
+                new_rect = pygame.Rect(x - 10, y - 10, width + 20, height + 20)
+                valid_position = True
+                
+                for existing_platform in platforms:
+                    existing_rect = pygame.Rect(existing_platform.x, existing_platform.y, 
+                                              existing_platform.width, existing_platform.height)
+                    if new_rect.colliderect(existing_rect):
+                        valid_position = False
+                        break
+                
+                if valid_position:
+                    platform = Platform(x, y, width, height)
+                    platforms.append(platform)
+                    next_layer_platforms.append(platform)
+            
+            # If still no platforms, stop creating layers
             if not next_layer_platforms:
                 break
                 
             current_layer_platforms = next_layer_platforms
         
-        # Add some additional platforms for variety (optional floating platforms)
+        # Add some additional floating platforms
         self.add_floating_platforms(platforms)
     
-    def add_floating_platforms(self, platforms):
-        """Add some floating platforms that might be harder to reach but still accessible"""
+    def add_connecting_platforms(self, platforms):
+        """Add platforms to connect isolated areas"""
         MAX_JUMP_HEIGHT = abs(JUMP_STRENGTH) * abs(JUMP_STRENGTH) / (2 * GRAVITY) - 20
-        MAX_JUMP_DISTANCE = PLAYER_SPEED * (2 * abs(JUMP_STRENGTH) / GRAVITY) * 0.8  # Slightly more conservative
+        MAX_JUMP_DISTANCE = PLAYER_SPEED * (2 * abs(JUMP_STRENGTH) / GRAVITY) * 0.8
         
-        num_floating = random.randint(1, 3)
+        # Find platform pairs that are almost reachable and add connecting platforms
+        platform_pairs = []
+        for i, platform1 in enumerate(platforms):
+            for j, platform2 in enumerate(platforms[i+1:], i+1):
+                horizontal_distance = abs((platform1.x + platform1.width/2) - (platform2.x + platform2.width/2))
+                height_diff = abs(platform1.y - platform2.y)
+                
+                # If platforms are close but not quite reachable, they're candidates for connection
+                if (MAX_JUMP_DISTANCE < horizontal_distance < MAX_JUMP_DISTANCE * 1.5 and
+                    height_diff < MAX_JUMP_HEIGHT):
+                    platform_pairs.append((platform1, platform2))
+        
+        # Add connecting platforms for some pairs
+        if platform_pairs:
+            num_connections = min(2, len(platform_pairs))
+            selected_pairs = random.sample(platform_pairs, num_connections)
+            
+            for platform1, platform2 in selected_pairs:
+                # Calculate midpoint
+                mid_x = (platform1.x + platform1.width/2 + platform2.x + platform2.width/2) // 2
+                mid_y = (platform1.y + platform2.y) // 2
+                
+                # Create connecting platform
+                width = random.randint(60, 100)
+                height = random.randint(15, 20)
+                
+                x = mid_x - width // 2
+                y = mid_y - height // 2
+                
+                # Ensure it's within screen bounds
+                x = max(10, min(SCREEN_WIDTH - width - 10, x))
+                y = max(50, min(SCREEN_HEIGHT - 150, y))
+                
+                # Check if position is valid
+                new_rect = pygame.Rect(x - 10, y - 10, width + 20, height + 20)
+                valid_position = True
+                
+                for existing_platform in platforms:
+                    existing_rect = pygame.Rect(existing_platform.x, existing_platform.y, 
+                                              existing_platform.width, existing_platform.height)
+                    if new_rect.colliderect(existing_rect):
+                        valid_position = False
+                        break
+                
+                if valid_position:
+                    platform = Platform(x, y, width, height)
+                    platforms.append(platform)
+    
+    def add_floating_platforms(self, platforms):
+        """Add some floating platforms that are accessible"""
+        MAX_JUMP_HEIGHT = abs(JUMP_STRENGTH) * abs(JUMP_STRENGTH) / (2 * GRAVITY) - 30
+        MAX_JUMP_DISTANCE = PLAYER_SPEED * (2 * abs(JUMP_STRENGTH) / GRAVITY) * 0.7
+        
+        num_floating = random.randint(1, 3)  # Fewer floating platforms
         
         for _ in range(num_floating):
             attempts = 0
-            while attempts < 20:
-                # Random platform properties
-                width = random.randint(60, 120)  # Smaller floating platforms
+            while attempts < 30:  # More attempts
+                # Random platform properties (smaller floating platforms)
+                width = random.randint(50, 90)
                 height = random.randint(15, 20)
                 
-                # Random position
-                x = random.randint(50, SCREEN_WIDTH - width - 50)
-                y = random.randint(100, SCREEN_HEIGHT - 200)
+                # Random position with proper bounds checking
+                margin = 30
+                max_x = SCREEN_WIDTH - width - margin
+                min_x = margin
+                
+                if min_x >= max_x:
+                    break  # Can't place platform, skip
+                
+                x = random.randint(min_x, max_x)
+                y = random.randint(80, SCREEN_HEIGHT - 250)
                 
                 # Check if this platform is reachable from at least one existing platform
                 reachable = False
@@ -1120,9 +1277,9 @@ class Game:
                     horizontal_distance = abs(existing_platform.x + existing_platform.width/2 - (x + width/2))
                     height_diff = existing_platform.y - (y + height)
                     
-                    # Check if reachable
+                    # Check if reachable (more lenient for floating platforms)
                     if (horizontal_distance <= MAX_JUMP_DISTANCE and 
-                        -50 <= height_diff <= MAX_JUMP_HEIGHT):  # Allow jumping down too
+                        -40 <= height_diff <= MAX_JUMP_HEIGHT):
                         reachable = True
                         break
                 
@@ -1130,14 +1287,15 @@ class Game:
                     attempts += 1
                     continue
                 
-                # Check for overlaps
+                # Check for overlaps (stricter)
+                buffer_rect = pygame.Rect(x - 30, y - 30, width + 60, height + 60)
                 valid_position = True
+                
                 for existing_platform in platforms:
                     existing_rect = pygame.Rect(existing_platform.x, existing_platform.y, 
                                               existing_platform.width, existing_platform.height)
                     
-                    if (new_rect.colliderect(existing_rect) or 
-                        abs(new_rect.centerx - existing_rect.centerx) < 80):
+                    if buffer_rect.colliderect(existing_rect):
                         valid_position = False
                         break
                 
@@ -1737,8 +1895,8 @@ class Game:
         coins_text = pygame.font.Font(None, 24).render(f"Coins Remaining: {coins_remaining}", True, BLACK)
         self.screen.blit(coins_text, (10, 40))
         
-        # Draw music status
-        music_status = "♪ ON" if (self.music_playing and pygame.mixer.music.get_busy()) else "♪ OFF"
+        # Draw music status (fixed unicode issue)
+        music_status = "ON" if (self.music_playing and pygame.mixer.music.get_busy()) else "OFF"
         music_text = pygame.font.Font(None, 24).render(f"Music: {music_status}", True, BLACK)
         self.screen.blit(music_text, (10, 70))
         
